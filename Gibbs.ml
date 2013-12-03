@@ -37,7 +37,7 @@ type token_data = {
   mutable x: topic_src;
 }
 
-let empty_data = {id=empty_id; z=0; x=Global}
+let empty_data () = {id=empty_id; z=0; x=Global}
 
 type doc_data = {
   tokens: token_data array;
@@ -72,7 +72,10 @@ let empty_global_topics_data topics words = {
 let init_model topics_num lines =
   List.map (fun (corpus, words) ->
     let data =
-      List.map (fun word -> {empty_data with id=id_of_str word}) words
+      List.map (fun word ->
+        let d = empty_data () in
+        {d with id=id_of_str word}
+      ) words
     in
     {corpus; tokens=Array.of_list data; topic_assign=Array.create topics_num 0}
   ) lines
@@ -159,7 +162,7 @@ let calc_theta topics_num alpha document topic_choice =
 
 let calc_phi_all beta topic =
   let nkstar = foi @: topic.word_total in
-  let bigV = foi @: word_types () in
+  let bigV = foi @: id_count () in
   let dividend = 1. /. (nkstar +. bigV *. beta) in
   Array.map (fun nkw ->
     (foi nkw +. beta) *. dividend
@@ -167,7 +170,7 @@ let calc_phi_all beta topic =
 
 let calc_phi beta topic token_id =
   let nkw = foi topic.word_counts.(token_id) in
-  let bigV = foi @: word_types () in
+  let bigV = foi @: id_count () in
   let nkstar = foi @: topic.word_total in
   let answer = (nkw +. beta) /. (nkstar +. bigV *. beta) in
   if answer < 0. then 
@@ -299,6 +302,7 @@ let log_likelihood lambda topics_num thetas phis_g phis data : float =
   (* loop over document tokens *)
   fst @:
     List.fold_left (fun ((acc:float),d) doc ->
+      (*Printf.printf "acc(%f)\n" acc;*)
       let corpus = doc.corpus in
       let sum = Array.fold_left (fun (acc':float) token ->
         let id = token.id in
@@ -307,8 +311,9 @@ let log_likelihood lambda topics_num thetas phis_g phis data : float =
             let a = (lambda_inv *. phis_g.(topic).(id)) +.
                     (lambda *. phis.(corpus).(topic).(id)) in
             let b = thetas.(d).(topic) *. a in
+            (*Printf.printf "a(%f), b(%f), acc''(%f)\n" a b acc'';*)
             (acc'' +. b, topic + 1)
-          ) (acc', 0) topics_num
+          ) (0., 0) topics_num
         in
         acc' +. log sum
       ) acc doc.tokens
@@ -318,6 +323,7 @@ let log_likelihood lambda topics_num thetas phis_g phis data : float =
 
 (* run one iteration of the algorithm *)
 let run_iter num params topics train_data test_data =
+  Printf.printf "iter %d" num; print_newline ();
   (* run over each token in the set *)
   update_tokens update_train_token params topics train_data;
   (* calculate the new thetas and phis *)
@@ -325,12 +331,12 @@ let run_iter num params topics train_data test_data =
     calc_theta_all params.topics_num params.alpha doc
   ) train_data
   in
-  print_endline @: string_of_thetas new_thetas;
+  (*print_endline @: string_of_thetas new_thetas;*)
   let new_phis_g = Array.map (fun topic ->
     calc_phi_all params.beta topic
   ) topics.global_topics
   in
-  print_endline @: string_of_phis new_phis_g;
+  (*print_endline @: string_of_phis new_phis_g;*)
   let new_phis = Array.map (fun topic_arr ->
     Array.map (fun topic ->
       calc_phi_all params.beta topic
@@ -366,7 +372,7 @@ let run params =
     init_probs ts @: init_model ts @: lines_of_file params.train_file in
   let test_data =
     init_probs ts @: init_model ts @: lines_of_file params.test_file in
-  let g_topics = empty_global_topics_data ts @: Ids.word_types () in
+  let g_topics = empty_global_topics_data ts @: Ids.id_count () in
   (* initialize the counters *)
   init_cntrs (Some g_topics) train_data;
   init_cntrs None test_data;
@@ -384,10 +390,10 @@ let run params =
         run_iter idx params g_topics train_data test_data in
       let train_ll =
         log_likelihood  params.lambda params.topics_num thetas phis_g phis train_data in
-      Printf.fprintf train_handle "%.13f" train_ll;
+      Printf.fprintf train_handle "%.13f\n" train_ll;
       let test_ll =
         log_likelihood  params.lambda params.topics_num thetas phis_g phis test_data in
-      Printf.fprintf test_handle "%.13f" test_ll;
+      Printf.fprintf test_handle "%.13f\n" test_ll;
       (thetas, phis_g, phis, idx + 1)
     ) ([||], [||], [||], 1) params.iterations
   in

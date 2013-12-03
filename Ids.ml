@@ -9,19 +9,20 @@ let id_str_h = Hashtbl.create 100
 let str_id_h = Hashtbl.create 100
 let g_cnt = ref 0
 
-let word_types () = !g_cnt
+let id_count () = !g_cnt
 
 let add_id str =
-    g_cnt := !g_cnt + 1;
+    let id = !g_cnt in
     Hashtbl.add str_id_h str !g_cnt;
     Hashtbl.add id_str_h !g_cnt str;
-    !g_cnt
+    g_cnt := !g_cnt + 1;
+    id
 
 let id_of_str str = try Hashtbl.find str_id_h str 
   with Not_found -> add_id str
 
 let str_of_id id = try Hashtbl.find id_str_h id
- with Not_found -> failwith "Bad id!"
+ with Not_found -> failwith @: "Bad id("^soi id^")!"
 
 let id_of_str_many strs = List.map id_of_str strs
 let str_of_id_many ids = List.map str_of_id ids
