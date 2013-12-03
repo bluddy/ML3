@@ -352,8 +352,10 @@ let run_iter params topics train_data test_data =
   let newvals = {thetas; phis_g; phis} in
   (* run over each token in test data *)
   update_tokens (update_test_token newvals.phis_g newvals.phis) params topics test_data;
+  let test_thetas = Array.of_list @: List.map
+    (calc_theta_all params.topics_num params.alpha) test_data in
   (* return results *)
-  newvals
+  newvals, test_thetas
 
 type files = Theta | Phi | Phi0 | Phi1 | Train | Test
 
@@ -394,14 +396,15 @@ let run params =
   let _ =
     iterate (fun idx ->
       Printf.printf "iter %d" idx; print_newline ();
-      let newvals = run_iter params g_topics train_data test_data in
+      let newvals, test_thetas = run_iter params g_topics train_data test_data in
       (* check if we need to add new vals to estimates *)
       if idx > params.burn_in then add_to_estimates estimates newvals;
       let train_ll =
         log_likelihood params.lambda params.topics_num newvals train_data in
       Printf.fprintf train_handle "%.13f\n" train_ll;
-      let test_ll =
-        log_likelihood  params.lambda params.topics_num newvals test_data in
+      let test_ll = log_likelihood 
+        params.lambda params.topics_num ({newvals with thetas=test_thetas}) test_data
+      in
       Printf.fprintf test_handle "%.13f\n" test_ll;
       (idx + 1)
     ) 1 params.iterations
