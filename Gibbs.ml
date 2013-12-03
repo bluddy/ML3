@@ -90,6 +90,8 @@ let init_probs topics_num lines =
   ) lines;
   lines
 
+type gibbs_type = Gibbs | BlockedGibbs
+
 type params = {
   train_file : string;
   test_file : string;
@@ -100,6 +102,7 @@ type params = {
   beta: float;
   iterations: int;
   burn_in: int;
+  blocked: gibbs_type; (* blocked gibbs *)
 }
 
 let topic_for_token topics document x topic_num = match x with
@@ -248,6 +251,67 @@ let update_test_token phis_g phis params _ document token =
   token.z <- new_z;
   add_cntrs None document token
 
+(* blocked gibbs *)
+let update_train_token_block params global_topics document token =
+  let alpha, beta, lambda = params.alpha, params.beta, params.lambda in
+  (* i. exclude assignments of current token *)
+  remove_cntrs (Some global_topics) document token;
+  (* ii. sample new value for z, x *)
+  (* calculations for random selection *)
+  let p_list, total, _ =
+    iterate (fun (acc, total, topic_num) ->
+      let acc_list, t, _ =
+        iterate (fun (acc', total', x) ->
+          let theta = calc_theta params.topics_num params.alpha document topic_num in
+          let topic = topic_for_token global_topics document token.x topic_num in
+          let phi = calc_phi params.beta topic token.id in
+          let factor = match x with
+            | Global -> 1. -. lambda
+            | Corpus -> lambda
+          in
+          let total'' = total' +. (factor *. theta *. phi) in
+          (total', (topic_num, x))::acc', total'', Corpus
+        ) (acc, total, Global) 2
+      in
+      (acc_list, t, topic_num + 1)
+    ) ([], 0., 0) params.topics_num
+  in
+  let (new_z, new_x) = random_from_list p_list total in
+  token.x <- new_x;
+  token.z <- new_z;
+  add_cntrs (Some global_topics) document token
+
+(* perform an update for a test token *)
+let update_test_token_block phis_g phis params _ document token =
+  let alpha, beta, lambda = params.alpha, params.beta, params.lambda in
+  (* i. exclude assignments of current token. Don't touch topic counters *)
+  remove_cntrs None document token;
+  (* ii. sample new value for z *)
+  (* calculations for random selection *)
+  let phi_src = match token.x with
+    | Global -> phis_g | Corpus -> phis.(document.corpus)
+  in
+  let p_list, total, _ =
+    iterate (fun (acc, total, topic_num) ->
+      let acc_list, t, _ =
+        iterate (fun (acc', total', x) ->
+          let theta = calc_theta params.topics_num params.alpha document topic_num in
+          let phi = phi_src.(topic_num).(token.id) in
+          let factor = match x with
+            | Global -> 1. -. lambda
+            | Corpus -> lambda
+          in
+          let total'' = total' +. (factor *. theta *. phi) in
+          (total', (topic_num, x))::acc', total'', Corpus
+        ) (acc, total, Global) 2
+      in
+      acc_list, t, topic_num + 1
+    ) ([], 0., 0) params.topics_num
+  in
+  let new_z, new_x = random_from_list p_list total in
+  token.x <- new_x;
+  token.z <- new_z;
+  add_cntrs None document token
 
 type estimates = {
   thetas : float array array; (* per document per topic*)
@@ -337,8 +401,12 @@ let log_likelihood lambda topics_num vals data : float =
 
 (* run one iteration of the algorithm *)
 let run_iter params topics train_data test_data =
+  let train_fn, test_fn = match params.blocked with 
+    | Gibbs -> update_train_token, update_test_token
+    | BlockedGibbs -> update_train_token_block, update_test_token_block
+  in
   (* run over each token in the set *)
-  update_tokens update_train_token params topics train_data;
+  update_tokens train_fn params topics train_data;
   (* calculate the new thetas and phis *)
   let thetas = Array.of_list @: List.map
     (calc_theta_all params.topics_num params.alpha) train_data in
@@ -351,7 +419,7 @@ let run_iter params topics train_data test_data =
   in
   let newvals = {thetas; phis_g; phis} in
   (* run over each token in test data *)
-  update_tokens (update_test_token newvals.phis_g newvals.phis) params topics test_data;
+  update_tokens (test_fn newvals.phis_g newvals.phis) params topics test_data;
   let test_thetas = Array.of_list @: List.map
     (calc_theta_all params.topics_num params.alpha) test_data in
   (* return results *)
@@ -424,9 +492,9 @@ let run params =
 
 let main () =
   let argv = Sys.argv in
-  if Array.length argv <> 10 then
+  if Array.length argv <> 11 then
     Printf.printf
-      "%s input_train input_test output_file topics lambda alpha beta iterations burn-in\n"
+      "%s input_train input_test output_file topics lambda alpha beta iterations burn-in blocked\n"
       argv.(0)
   else
     let params = {
@@ -439,8 +507,13 @@ let main () =
       beta = fos argv.(7);
       iterations = ios argv.(8);
       burn_in = ios argv.(9);
+      blocked = match argv.(10) with "blocked" -> BlockedGibbs | _ -> Gibbs;
     }
-    in run params
+    in begin match params.blocked with 
+    | BlockedGibbs -> print_endline "Blocked Gibbs" 
+    | Gibbs        -> print_endline "Gibbs"
+    end;
+    run params
 
 let _ =
   if !Sys.interactive then ()

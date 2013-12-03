@@ -1,1 +1,1 @@
-ocamlbuild Gibbs.byte -tag debug $@
+ocamlbuild Gibbs.native $@
