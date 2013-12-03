@@ -319,13 +319,23 @@ let array_map f arr =
 (* in-place modification *)
 let array_modify f arr =
   for i=0 to Array.length arr - 1 do
+    arr.(i) <- f arr.(i)
+  done
+
+let array_modifyi f arr =
+  for i=0 to Array.length arr - 1 do
     arr.(i) <- f i arr.(i)
   done
 
 (* in-place modification with 2 arrays *)
-let array_modify2 f arr1 arr2 =
+let array_modify2i f arr1 arr2 =
   for i=0 to Array.length arr1 - 1 do
     arr1.(i) <- f i arr1.(i) arr2.(i)
+  done
+
+let array_modify2 f arr1 arr2 =
+  for i=0 to Array.length arr1 - 1 do
+    arr1.(i) <- f arr1.(i) arr2.(i)
   done
 
 let array_iter2 f arr1 arr2 =

@@ -144,9 +144,13 @@ val array_find : ('a -> bool) -> 'a array -> int * 'a
 (* map an array to a list *)
 val array_map : ('a -> 'b) -> 'a array -> 'b list
 
-val array_modify : (int -> 'a -> 'a) -> 'a array -> unit
+val array_modify : ('a -> 'a) -> 'a array -> unit
 
-val array_modify2 : (int -> 'a -> 'a -> 'a) -> 'a array -> 'a array -> unit
+val array_modifyi : (int -> 'a -> 'a) -> 'a array -> unit
+
+val array_modify2i : (int -> 'a -> 'a -> 'a) -> 'a array -> 'a array -> unit
+
+val array_modify2 : ('a -> 'a -> 'a) -> 'a array -> 'a array -> unit
 
 val array_iter2 : ('a -> 'a -> unit) -> 'a array -> 'a array -> unit
 

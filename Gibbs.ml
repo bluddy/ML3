@@ -173,7 +173,7 @@ let calc_phi beta topic token_id =
   let bigV = foi @: id_count () in
   let nkstar = foi @: topic.word_total in
   let answer = (nkw +. beta) /. (nkstar +. bigV *. beta) in
-  if answer < 0. then 
+  if answer < 0. then
     let s = Printf.sprintf "sanity fail! nkw(%f), bigV(%f), nkstar(%f), answer(%f)" nkw bigV nkstar answer in
       failwith s
     else answer
@@ -251,9 +251,16 @@ let update_test_token phis_g phis params _ document token =
 
 type estimates = {
   thetas : float array array; (* per document per topic*)
-  phis_g : float array; (* per topic per word *)
-  phis : float array array; (* per corpus, per topic, per word*)
+  phis_g : float array array; (* per topic per word *)
+  phis : float array array array; (* per corpus, per topic, per word*)
 }
+
+let empty_estimates num_docs num_topics num_words =
+  let thetas = Array.init num_docs (fun _ -> Array.make num_topics 0.) in
+  let init_phy () = Array.init num_topics (fun _ -> Array.make num_words 0.) in
+  let phis_g = init_phy () in
+  let phis = Array.init num_corpus (fun _ -> init_phy ()) in
+  {thetas; phis_g; phis}
 
 let string_of_thetas ts =
   let b = Buffer.create 100 in
@@ -277,16 +284,23 @@ let string_of_phis ps =
   done;
   Buffer.contents b
 
-(*let add_to_estimates thetas phis_g phis estimates =
-  array_modify2
-    (fun _ theta1 theta2 -> theta1 +. theta2) estimates.thetas thetas;
-  array_modify2
-    (fun _ phi1 phi2 -> phi1 +. phi2) estimates.phis_g phis_g;
-  array_iter2
-    (fun arr1 arr2 ->
-      array_modify2 (fun _ phi1 phi2 -> phi1 +. phi2) arr1 arr2
-    ) estimates.phis phis
-*)
+let add_to_estimates estimates newvals =
+  let add_to_arr arr1 arr2 = array_modify2 (+.) arr1 arr2 in
+  let deep_add arr1 arr2 = array_iter2 add_to_arr arr1 arr2 in
+  let deeper_add arr1 arr2 = array_iter2 deep_add arr1 arr2 in
+  deep_add estimates.thetas newvals.thetas;
+  deep_add estimates.phis_g newvals.phis_g;
+  deeper_add estimates.phis newvals.phis
+
+let avg_estimates estimates num =
+  let n = foi num in
+  let div arr = array_modify (fun x -> x /. n) arr in
+  let deep_div arr = Array.iter div arr in
+  let deeper_div arr = Array.iter deep_div arr in
+  deep_div estimates.thetas;
+  deep_div estimates.phis_g;
+  deeper_div estimates.phis
+
 
 (* update all the tokens *)
 let update_tokens fn params topics data =
@@ -297,7 +311,7 @@ let update_tokens fn params topics data =
   ) data
 
 (* calculate the log-likelihood *)
-let log_likelihood lambda topics_num thetas phis_g phis data : float =
+let log_likelihood lambda topics_num vals data : float =
   let lambda_inv = 1. -. lambda in
   (* loop over document tokens *)
   fst @:
@@ -308,9 +322,9 @@ let log_likelihood lambda topics_num thetas phis_g phis data : float =
         let id = token.id in
         let sum = fst @:
           iterate (fun (acc'', topic) ->
-            let a = (lambda_inv *. phis_g.(topic).(id)) +.
-                    (lambda *. phis.(corpus).(topic).(id)) in
-            let b = thetas.(d).(topic) *. a in
+            let a = (lambda_inv *. vals.phis_g.(topic).(id)) +.
+                    (lambda *. vals.phis.(corpus).(topic).(id)) in
+            let b = vals.thetas.(d).(topic) *. a in
             (*Printf.printf "a(%f), b(%f), acc''(%f)\n" a b acc'';*)
             (acc'' +. b, topic + 1)
           ) (0., 0) topics_num
@@ -322,34 +336,24 @@ let log_likelihood lambda topics_num thetas phis_g phis data : float =
     ) (0., 0) data
 
 (* run one iteration of the algorithm *)
-let run_iter num params topics train_data test_data =
-  Printf.printf "iter %d" num; print_newline ();
+let run_iter params topics train_data test_data =
   (* run over each token in the set *)
   update_tokens update_train_token params topics train_data;
   (* calculate the new thetas and phis *)
-  let new_thetas = Array.of_list @: List.map (fun doc ->
-    calc_theta_all params.topics_num params.alpha doc
-  ) train_data
-  in
+  let thetas = Array.of_list @: List.map
+    (calc_theta_all params.topics_num params.alpha) train_data in
   (*print_endline @: string_of_thetas new_thetas;*)
-  let new_phis_g = Array.map (fun topic ->
-    calc_phi_all params.beta topic
-  ) topics.global_topics
-  in
+  let phis_g = Array.map (calc_phi_all params.beta) topics.global_topics in
   (*print_endline @: string_of_phis new_phis_g;*)
-  let new_phis = Array.map (fun topic_arr ->
-    Array.map (fun topic ->
-      calc_phi_all params.beta topic
-    ) topic_arr
+  let phis = Array.map (fun topic_arr ->
+    Array.map (calc_phi_all params.beta) topic_arr
   ) topics.group_topics
   in
-  (* if burn-in is passed, add to estimates TODO *)
-  (*if num > params.burn_in then*)
-    (*add_to_estimates new_thetas new_phis_g new_phis estimates;*)
+  let newvals = {thetas; phis_g; phis} in
   (* run over each token in test data *)
-  update_tokens (update_test_token new_phis_g new_phis) params topics test_data;
+  update_tokens (update_test_token newvals.phis_g newvals.phis) params topics test_data;
   (* return results *)
-  (new_thetas, new_phis_g, new_phis)
+  newvals
 
 type files = Theta | Phi | Phi0 | Phi1 | Train | Test
 
@@ -373,6 +377,7 @@ let run params =
   let test_data =
     init_probs ts @: init_model ts @: lines_of_file params.test_file in
   let g_topics = empty_global_topics_data ts @: Ids.id_count () in
+
   (* initialize the counters *)
   init_cntrs (Some g_topics) train_data;
   init_cntrs None test_data;
@@ -384,28 +389,34 @@ let run params =
     open_out names.(int_of_file Test), open_out names.(int_of_file Train) in
 
   (* run iterations *)
-  let thetas, phis_g, phis, _ =
-    iterate (fun (_, _, _, idx) ->
-      let thetas, phis_g, phis =
-        run_iter idx params g_topics train_data test_data in
+  let estimates = empty_estimates 
+    (List.length train_data) params.topics_num (Ids.id_count ()) in
+  let _ =
+    iterate (fun idx ->
+      Printf.printf "iter %d" idx; print_newline ();
+      let newvals = run_iter params g_topics train_data test_data in
+      (* check if we need to add new vals to estimates *)
+      if idx > params.burn_in then add_to_estimates estimates newvals;
       let train_ll =
-        log_likelihood  params.lambda params.topics_num thetas phis_g phis train_data in
+        log_likelihood params.lambda params.topics_num newvals train_data in
       Printf.fprintf train_handle "%.13f\n" train_ll;
       let test_ll =
-        log_likelihood  params.lambda params.topics_num thetas phis_g phis test_data in
+        log_likelihood  params.lambda params.topics_num newvals test_data in
       Printf.fprintf test_handle "%.13f\n" test_ll;
-      (thetas, phis_g, phis, idx + 1)
-    ) ([||], [||], [||], 1) params.iterations
+      (idx + 1)
+    ) 1 params.iterations
   in
+  (* average our estimates over the number of updates *)
+  avg_estimates estimates (params.iterations - params.burn_in);
   close_out test_handle;
   close_out train_handle;
-  let thetas_s = string_of_thetas thetas in
+  let thetas_s = string_of_thetas estimates.thetas in
   write_file names.(int_of_file Theta) thetas_s;
-  let phis_g_s = string_of_phis phis_g in
+  let phis_g_s = string_of_phis estimates.phis_g in
   write_file names.(int_of_file Phi) phis_g_s;
-  let phis_0_s = string_of_phis phis.(0) in
+  let phis_0_s = string_of_phis estimates.phis.(0) in
   write_file names.(int_of_file Phi0) phis_0_s;
-  let phis_1_s = string_of_phis phis.(1) in
+  let phis_1_s = string_of_phis estimates.phis.(1) in
   write_file names.(int_of_file Phi1) phis_1_s
 
 let main () =
