@@ -1,4 +1,6 @@
-type t = int
+open Util
+
+type id = int
 
 let empty_id = (-1)
 
