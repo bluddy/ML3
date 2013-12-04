@@ -490,10 +490,10 @@ let run params =
     params.lambda params.topics_num estimates test_data ~test:true
   in
   let train_ll = log_likelihood 
-    params.lambda params.topics_num estimates test_data ~test:false
+    params.lambda params.topics_num estimates train_data ~test:false
   in
-  Printf.printf "Test  average log-likelihood: %13e\n" test_ll;
-  Printf.printf "Train average log-likelihood: %13e\n" train_ll;
+  Printf.printf "Test  average log-likelihood: %.13e\n" test_ll;
+  Printf.printf "Train average log-likelihood: %.13e\n" train_ll;
 
   close_out test_handle;
   close_out train_handle;
