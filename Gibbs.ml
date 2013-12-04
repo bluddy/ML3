@@ -330,7 +330,7 @@ let string_of_thetas ts =
   let b = Buffer.create 100 in
   Array.iter (fun topic_arr ->
     Array.iter (fun theta ->
-      Printf.bprintf b "%.13f " theta
+      Printf.bprintf b "%.13e " theta
     ) topic_arr;
     Printf.bprintf b "\n"
   ) ts;
@@ -342,7 +342,7 @@ let string_of_phis ps =
   for i=0 to jlen-1 do (* word *)
     Printf.bprintf b "%s " (str_of_id i);
     for j=0 to Array.length ps - 1 do (* topic *)
-      Printf.bprintf b "%.13f " ps.(j).(i)
+      Printf.bprintf b "%.13e " ps.(j).(i)
     done;
     Printf.bprintf b "\n"
   done;
@@ -425,20 +425,21 @@ let run_iter params topics train_data test_data =
   (* return results *)
   newvals, test_thetas
 
-type files = Theta | Phi | Phi0 | Phi1 | Train | Test
+type files = Theta | Phi | Phi0 | Phi1 | Train | Test | Time
 
-let file_types = [|Theta; Phi; Phi0; Phi1; Train; Test|]
+let file_types = [|Theta; Phi; Phi0; Phi1; Train; Test; Time|]
 
 let int_of_file = function
-  | Theta -> 0 | Phi -> 1 | Phi0 -> 2 | Phi1 -> 3 | Train -> 4 | Test -> 5
+  | Theta -> 0 | Phi -> 1 | Phi0 -> 2 | Phi1 -> 3 | Train -> 4 | Test -> 5 | Time -> 6
 
 let file_of_int = function
-  | 0 -> Theta | 1 -> Phi | 2 -> Phi0 | 3 -> Phi1 | 4 -> Train | 5 -> Test
+  | 0 -> Theta | 1 -> Phi | 2 -> Phi0 | 3 -> Phi1 | 4 -> Train | 5 -> Test | 6 -> Time
   | _ -> invalid_arg "bad int"
 
 let str_of_file = function
   | Theta -> "theta" | Phi -> "phi" | Phi0 -> "phi0"
   | Phi1 -> "phi1" | Train -> "trainll" | Test -> "testll"
+  | Time -> "time"
 
 let run params =
   let ts = params.topics_num in
@@ -455,8 +456,10 @@ let run params =
   (* open the output files *)
   let o = params.output_file in
   let names = Array.map (fun t -> o^"-"^str_of_file t) file_types in
-  let test_handle, train_handle =
-    open_out names.(int_of_file Test), open_out names.(int_of_file Train) in
+  let test_handle, train_handle, time_handle =
+    open_out names.(int_of_file Test), open_out names.(int_of_file Train),
+    open_out names.(int_of_file Time) 
+  in
 
   (* run iterations *)
   let estimates = empty_estimates 
@@ -469,11 +472,12 @@ let run params =
       if idx > params.burn_in then add_to_estimates estimates newvals;
       let train_ll =
         log_likelihood params.lambda params.topics_num newvals train_data in
-      Printf.fprintf train_handle "%.13f\n" train_ll;
+      Printf.fprintf train_handle "%.13e\n" train_ll;
       let test_ll = log_likelihood 
         params.lambda params.topics_num ({newvals with thetas=test_thetas}) test_data
       in
-      Printf.fprintf test_handle "%.13f\n" test_ll;
+      Printf.fprintf test_handle "%.13e\n" test_ll;
+      Printf.fprintf time_handle "%f\n" (Sys.time ());
       (idx + 1)
     ) 1 params.iterations
   in
