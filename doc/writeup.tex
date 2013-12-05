@@ -57,6 +57,7 @@
     Which is minimized when $Q_j = \exp f$. (We will normalize after all updates)
 
 \item Mean field is a very crude approximation for the original distribution. We note that the KL divergence is very high ($0.829$), indicating that our approximate distribution is a bad choice.
+\item The derivation for structured mean field is the same as the one above, except that we set $X = \{ABC, DEF\}$.
 \item Structured mean field inference is a far better approximation for our original distribution. The KL divergence is much lower than in the previous case ($0.002$), indicating the closeness of the approximation. Additionally, the values in the approximate marginal multinomial distribution are within roughly $0.01$ of the true distribution.
 
 Mean field inference makes many independence assumptions missing from the original model. Structured mean field inference does this a lot less.
